@@ -9,10 +9,14 @@ module sundials_solve
     use fsunmatrix_sparse_mod ! Sparse matrix
     use fsunlinsol_klu_mod ! External KLU sparse matrix direct solver methods
     use fsunnonlinsol_fixedpoint_mod ! Non linear fixed point solver
+    use fsunnonlinsol_newton_mod ! Non linear fixed point solver
     use fsundials_nonlinearsolver_mod ! Non linear solver
+    use fsunmatrix_dense_mod       ! Fortran interface to dense SUNMatrix
+    use fsunlinsol_dense_mod       ! Fortran interface to dense SUNLinearSolver
+    use fsunlinsol_spbcgs_mod ! Fortran interface to Bi-CGStab iterative linear solver
 
     ! Gradient calculating ode
-    use dummy_grad
+    use ODEContainer
     implicit none
 
     type sundials_solve_class
@@ -25,8 +29,11 @@ module sundials_solve
     contains
         procedure, public, pass :: create_cvode_environment
         procedure, public, pass :: create_sparse_matrix_linear_solver
+        procedure, public, pass :: create_dense_matrix_linear_solver
         procedure, public, pass :: create_linear_solver
         procedure, public, pass :: create_non_linear_solver
+        procedure, public, pass :: create_root_finding_function
+        procedure, public, pass :: reinitialise
         procedure, public, pass :: associate_user_data
         procedure, public, pass :: set_min_max_step
         procedure, public, pass :: solve_timestep
@@ -108,20 +115,54 @@ module sundials_solve
 
         neqn = neq; nnz = total_non_zeros
 
-        if(associated(this%A)) then
-            print *, 'Error create_sparse_matrix_linear_solver, already associated sparse matrix'
-            stop 1
-        endif
+        call check_association_sunmat(this%A, .false.)
 
         if(present(comp_row_col)) then
             if(comp_row_col == 'compressed_column') then
                 this%A => FSUNSparseMatrix(neqn, neqn, nnz, CSC_MAT)
-                call check_association_sunmat(this%A)
+                call check_association_sunmat(this%A, .true.)
                 return
             endif
         endif
         this%A => FSUNSparseMatrix(neqn, neqn, nnz, CSR_MAT)
-        call check_association_sunmat(this%A)
+        call check_association_sunmat(this%A, .true.)
+    end subroutine
+
+    subroutine create_root_finding_function(this, num_roots, ode_container)
+        !! Initialises the functionality to find roots in the system
+        class(sundials_solve_class), intent(inout) :: this
+        integer, intent(in) :: num_roots
+        type(odesContainerClass), intent(inout), target :: ode_container
+
+        integer(c_int) :: ierr
+
+        ierr = FCVodeRootInit(this%cvode_mem, num_roots, c_funloc(RootFn))
+        if (ierr /= 0) then
+            print *, 'Error in FCVodeInit, ierr = ', ierr, '; halting'
+            stop 1
+        end if
+    end subroutine
+
+    subroutine create_dense_matrix_linear_solver(this, neq)
+        !! Creates a dense linear matrix, only optimal if neq < 100 approximately, otherwise use banded or sparse.
+        !! N.B. sparse requires user supplied Jacobian, dense and banded can estimate Jacobian through difference
+        !! quotients (alternatively use iterative linear solvers such as GMRES, Bi-CGSTAG, etc...)
+        class(sundials_solve_class), intent(inout) :: this
+        integer, intent(in) :: neq
+
+        integer(c_long) :: neqn
+
+        call check_association_sunmat(this%A, .false.)
+
+        neqn = neq
+
+        ! create a dense matrix
+        this%A => FSUNDenseMatrix(neqn, neqn)
+        if (.not. associated(this%A)) then
+            print *, 'ERROR: sunmat = NULL'
+            stop 1
+        end if
+        call check_association_sunmat(this%A, .true.)
     end subroutine
 
     subroutine create_linear_solver(this, solver_type)
@@ -133,16 +174,28 @@ module sundials_solve
         
         integer(c_int) :: ierr
 
+        
         if(solver_type=='sparse_linear') then
             ! must specify a direct sparse KLU solver to go with sparse matrix storage scheme, this also requires jacobian evaluating methods since not dense or banded matrix.
+            call check_association_sunmat(this%A, .true.)
             this%sunlinsol => FSUNLinSol_KLU(this%solution_vector, this%A)
         endif
 
-        ierr = FSUNLinSolInitialize_KLU(this%sunlinsol)
-        if (ierr /= 0) then
-            print *, 'Error in FSUNLinSolInitialize, ierr = ', ierr, '; halting'
+        if(solver_type=='dense') then
+            ! Dense linear solver is to be created
+            call check_association_sunmat(this%A, .true.)
+            this%sunlinsol => FSUNDenseLinearSolver(this%solution_vector, this%A)
+        endif
+
+        if(solver_type=='bicgstab') then
+            ! A iterative linear solver is specified that doesn't require an A matrix
+            this%sunlinsol => FSUNLinSol_SPBCGS(this%solution_vector, PREC_NONE, 5)
+        endif
+
+        if (.not. associated(this%sunlinsol)) then
+            print *, 'ERROR: this%sunlinsol = NULL'
             stop 1
-        end if 
+        end if
 
         ! attach linear solver
         ierr = FCVodeSetLinearSolver(this%cvode_mem, this%sunlinsol, this%A);
@@ -165,6 +218,13 @@ module sundials_solve
                 print *,'ERROR: this%sunnonlinsol = NULL'
                 stop 001
             end if
+        elseif(solver_type == 'newton') then
+            ! call check_association_sunmat(this%A, .true.)
+            this%sunnonlinsol => FSUNNonlinSol_Newton(this%solution_vector)
+            if (.not. associated(this%sunnonlinsol)) then
+                print *,'ERROR: this%sunnonlinsol = NULL'
+                stop 003
+            end if
         endif
 
         ! attach nonlinear solver object to CVode
@@ -175,11 +235,34 @@ module sundials_solve
         end if
     end subroutine
 
+    subroutine reinitialise(this, t, vals)
+        !! Associate the user data and gradient calculating function with the ode solver. The argument "ode_container" will vary in type
+        !! depending on the problem
+        class(sundials_solve_class), intent(inout) :: this
+        real(8) :: t
+        real(8), intent(in) :: vals(:)
+
+        real(c_double) :: t_c
+        integer(c_int) :: ierr
+        integer(c_long) :: neq
+
+        call FN_VDestroy(this%solution_vector)
+
+        t_c = t
+        ! Re-create nvector with new initialised values
+        neq = size(vals)
+        this%c_solution_vector = vals
+        this%solution_vector => FN_VMake_Serial(neq, this%c_solution_vector)
+        
+
+        ierr = FCVodeReInit(this%cvode_mem , t_c, this%solution_vector)
+    end subroutine
+
     subroutine associate_user_data(this, ode_container)
         !! Associate the user data and gradient calculating function with the ode solver. The argument "ode_container" will vary in type
         !! depending on the problem
         class(sundials_solve_class), intent(inout) :: this
-        type(ode_test), intent(inout), target :: ode_container
+        type(odesContainerClass), intent(inout), target :: ode_container
 
         integer(c_int) :: ierr
 
@@ -213,7 +296,7 @@ module sundials_solve
         class(sundials_solve_class), intent(inout) :: this
         real(8), intent(inout) :: curr_time
         real(8), intent(inout) :: end_time
-        integer, intent(inout) :: iflag
+        integer(c_int) :: iflag
 
         real(8) :: arr_curr_time(1)
 
@@ -221,6 +304,11 @@ module sundials_solve
 
         ! convert the input vector to the sunvector type
         iflag = FCVode(this%cvode_mem, end_time, this%solution_vector, arr_curr_time, CV_NORMAL)
+        if(iflag==2) then
+            stop
+            write(*,*) 'found root'
+        endif
+        ! endif
 
         curr_time = arr_curr_time(1)
     end subroutine
@@ -248,7 +336,7 @@ module sundials_solve
         type(N_Vector) :: sunvec_y
         type(N_Vector) :: sunvec_f
         type(c_ptr), value :: user_data
-        type(ode_test), pointer :: f_user_data => null()
+        type(odesContainerClass), pointer :: f_user_data => null()
 
         
         ! C-data types for interface to sundials (c_double is 64-bit, equivalent to fortran double precision so may be casted to one another).
@@ -264,8 +352,40 @@ module sundials_solve
         ! Compute the RHS vector
         call f_user_data%calculate_gradient(tn, yvec(:), fvec(:))
 
+        ! write(*,*) fvec(1:100)
+
         yvec => null()
         fvec => null()
+        f_user_data => null()
+
+        ierr = 0
+        return
+    end function
+
+    integer(c_int) function RootFn(tn, sunvec_y, g_out, user_data) result(ierr) bind(C,name='RootFn')
+        !! Compute the gradient 
+        real(c_double), value :: tn
+        type(N_Vector) :: sunvec_y
+        real(8) :: g_out(5)
+        type(c_ptr), value :: user_data
+        type(odesContainerClass), pointer :: f_user_data => null()
+
+        
+        ! C-data types for interface to sundials (c_double is 64-bit, equivalent to fortran double precision so may be casted to one another).
+        real(c_double), pointer :: yvec(:) => null()
+
+        call C_F_POINTER(user_data, f_user_data)
+
+        g_out = 0.d0
+
+        ! get sundials vectors as conventional data types
+        yvec => FN_VGetArrayPointer(sunvec_y)
+        ! Compute the RHS vector
+        ! write(*,*) g_out
+        call f_user_data%root_evaluation(tn, yvec(:), g_out)
+        ! write(*,*) g_out
+
+        yvec => null()
         f_user_data => null()
 
         ierr = 0
@@ -346,11 +466,12 @@ module sundials_solve
     !! INTERNAL MODULE PROCEDURES
     !! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
     !! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-    subroutine check_association_sunmat(sunmat)
+    subroutine check_association_sunmat(sunmat, logic_associated)
         !! Internal function to check the association of the sun matrix class
         type(SUNMatrix), pointer :: sunmat
+        logical, intent(in) :: logic_associated ! supply false if want to ensure not associated and true if want to ensure associated
 
-        if (.not. associated(sunmat)) then
+        if (.not.(associated(sunmat) .eqv. logic_associated)) then
             print *,'ERROR: sunmat = NULL'
             stop 1
         end if

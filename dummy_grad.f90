@@ -24,13 +24,19 @@ implicit none
 
 		real(8) :: rho, sigma, beta
 
-		rho = 20.d0; sigma = 10.d0; beta = 8.d0/3.d0;
-
-		! write(*,*) rho, sigma, beta
-		dy(1) = sigma * (y(2) - y(1))
-		dy(2) = y(1) * (rho - y(3)) - y(2)
-		dy(3) = y(1) * y(2) - beta * y(3)
+		! Lorenz attractor
+		! rho = 15.d0; sigma = 10.d0; beta = 8.d0/3.d0;
+		! dy(1) = sigma * (y(2) - y(1))
+		! dy(2) = y(1) * (rho - y(3)) - y(2)
+		! dy(3) = y(1) * y(2) - beta * y(3)
 		! write(*,*) dy, y
+
+		! Chemical balance equations
+		dy(1) = -0.04d0 * y(1) + 1.d4 * y(2) * y(3)
+		dy(2) = 0.04 * y(1) - 1.d4 * y(2) * y(3) - 3.d7 * y(2)**2
+		dy(3) = 3.d7 * y(2) **2
+
+		write(*,*) 'dy', dy
 	end subroutine
 
 

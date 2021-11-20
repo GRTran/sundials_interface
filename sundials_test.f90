@@ -11,7 +11,7 @@ program sundials_test
 	real(8) :: initial_conditions(3)
 	real(8) :: solution(3)
 
-	initial_conditions = 10.d0
+	initial_conditions = 1.d0
 	neqn = 3
 	curr_time = 0.1d0
 
@@ -30,6 +30,17 @@ program sundials_test
 	! call solver%create_linear_solver('sparse_linear')
 	! write(*,*) 'Linear solver created.'
 
+	! write(*,*) 'Creating dense matrix.'
+	! call solver%create_dense_matrix_linear_solver(neqn)
+	! write(*,*) 'Created densse matrix.'
+	! write(*,*) 'Creating linear solver.'
+	! call solver%create_linear_solver('dense')
+	! write(*,*) 'Linear solver created.'
+
+	! write(*,*) 'Creating linear solver.'
+	! call solver%create_linear_solver('bicgstab')
+	! write(*,*) 'Linear solver created.'
+
 	write(*,*) 'Creating non-linear solver.'
 	call solver%create_non_linear_solver('fixed_point')
 	write(*,*) 'Non-linear solver created.'
@@ -40,9 +51,9 @@ program sundials_test
 
 	write(*,*) 'Solving ODE.'
 	open(145, file='lorenz_out.dat')
-	call solver%set_min_max_step(0.0d0, 1.d-2)
-	do while (curr_time < 100.d0)
-		end_time = min(curr_time + 1.d-2, 100.d0)
+	call solver%set_min_max_step(0.0d0, 1.d0)
+	do while (curr_time < 1000.d0)
+		end_time = min(curr_time + 1.d-2, 1000.d0)
 		iflag = 0
 		call solver%solve_timestep(curr_time, end_time, iflag)
 		call solver%get_solution(solution)
