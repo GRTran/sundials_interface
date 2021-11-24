@@ -304,11 +304,10 @@ module sundials_solve
 
         ! convert the input vector to the sunvector type
         iflag = FCVode(this%cvode_mem, end_time, this%solution_vector, arr_curr_time, CV_NORMAL)
-        if(iflag==2) then
-            stop
-            write(*,*) 'found root'
+        if(iflag < 0) then
+            write(*,*) iflag
+            ! stop 100
         endif
-        ! endif
 
         curr_time = arr_curr_time(1)
     end subroutine
@@ -351,6 +350,8 @@ module sundials_solve
 
         ! Compute the RHS vector
         call f_user_data%calculate_gradient(tn, yvec(:), fvec(:))
+
+        ! call this%set_solution(yvec)
 
         ! write(*,*) fvec(1:100)
 
