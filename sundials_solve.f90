@@ -308,6 +308,9 @@ module sundials_solve
             write(*,*) iflag
             ! stop 100
         endif
+        ! if(iflag /= 0) then
+        !     write(*,*) 'issue here', iflag
+        ! endif
 
         curr_time = arr_curr_time(1)
     end subroutine
