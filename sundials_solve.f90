@@ -370,7 +370,7 @@ module sundials_solve
         !! Compute the gradient 
         real(c_double), value :: tn
         type(N_Vector) :: sunvec_y
-        real(8) :: g_out(5)
+        real(8) :: g_out(6)
         type(c_ptr), value :: user_data
         type(odesContainerClass), pointer :: f_user_data => null()
 
