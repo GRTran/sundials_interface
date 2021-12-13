@@ -46,18 +46,20 @@ module sundials_solve
     private check_association_sunmat
     contains
 
-    subroutine create_cvode_environment(this, method, initial_condition_vector, tstart, rtol, atol)
+    subroutine create_cvode_environment(this, method, initial_condition_vector, tstart, rtol, atol, mxsteps)
         !! Allocates memory and creates solver that will use a given method, of a given type, with specified initial conditions and with specified relative and absolute error tolerances
         class(sundials_solve_class), intent(inout) :: this
         character(*), intent(in) :: method ! bdf (backwards differentiation - multi-step fully implicit method) or adams (multi-step explicit method)
-        real(c_double), intent(in) :: initial_condition_vector(:)
-        real(c_double), intent(in) :: tstart
-        real(c_double), intent(in), optional :: rtol
-        real(c_double), intent(in), optional :: atol
+        real(c_double), intent(in) :: initial_condition_vector(:) ! initial conditions
+        real(c_double), intent(in) :: tstart ! start time
+        real(c_double), intent(in), optional :: rtol ! relative error tolerance
+        real(c_double), intent(in), optional :: atol ! absolute error tolerance
+        integer, intent(in), optional :: mxsteps ! maximum number of steps to be taken by solver, default (500), a value <0 will disable max step test (not recommended, code may get stuck without reporting it)
 
         ! internal variables
         integer(c_int) :: ierr
         integer(c_long) :: neq
+        integer(c_long) :: mxsteps_act
         real(c_double) :: rtol_act = 1.d-6
         real(c_double) :: atol_act = 1.d-6
  
@@ -99,6 +101,16 @@ module sundials_solve
             print *, 'Error in FCVodeSStolerances, ierr = ', ierr, '; halting'
             stop 1
         end if
+
+        ! set the number of maximum steps if argument has been provided
+        if(present(mxsteps)) then
+            mxsteps_act = mxsteps
+            ierr = FCVodeSetMaxNumSteps(this%cvode_mem, mxsteps_act)
+            if(ierr /= 0) then
+                print*, 'Error in FCVodeSetMaxNumSteps, ierr = ', ierr, '; halting'
+                stop 1
+            endif
+        endif
     end subroutine
 
     subroutine create_sparse_matrix_linear_solver(this, neq, total_non_zeros, comp_row_col)
