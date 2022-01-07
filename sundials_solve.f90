@@ -415,11 +415,11 @@ module sundials_solve
         integer(c_int) :: ierr
 
         ! clean up
-        call FCVodeFree(this%cvode_mem)
-        ierr = FSUNLinSolFree(this%sunlinsol)
-        call FSUNMatDestroy(this%A)
-        call FN_VDestroy(this%solution_vector)
-        if(allocated(this%c_solution_vector)) deallocate(this%c_solution_vector)
+        ! call FCVodeFree(this%cvode_mem)
+        ! ierr = FSUNLinSolFree(this%sunlinsol)
+        ! call FSUNMatDestroy(this%A)
+        ! call FN_VDestroy(this%solution_vector)
+        ! if(allocated(this%c_solution_vector)) deallocate(this%c_solution_vector)
     end subroutine
 
     subroutine print_diagnostics(this)
