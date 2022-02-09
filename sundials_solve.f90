@@ -7,7 +7,7 @@ module sundials_solve
     use fsundials_linearsolver_mod ! Linear system Ax=b 
     use fsundials_matrix_mod ! Matrix
     use fsunmatrix_sparse_mod ! Sparse matrix
-    use fsunlinsol_klu_mod ! External KLU sparse matrix direct solver methods
+    ! use fsunlinsol_klu_mod ! External KLU sparse matrix direct solver methods
     use fsunnonlinsol_fixedpoint_mod ! Non linear fixed point solver
     use fsunnonlinsol_newton_mod ! Non linear fixed point solver
     use fsundials_nonlinearsolver_mod ! Non linear solver
@@ -190,7 +190,7 @@ module sundials_solve
         if(solver_type=='sparse_linear') then
             ! must specify a direct sparse KLU solver to go with sparse matrix storage scheme, this also requires jacobian evaluating methods since not dense or banded matrix.
             call check_association_sunmat(this%A, .true.)
-            this%sunlinsol => FSUNLinSol_KLU(this%solution_vector, this%A)
+            ! this%sunlinsol => FSUNLinSol_KLU(this%solution_vector, this%A)
         endif
 
         if(solver_type=='dense') then
