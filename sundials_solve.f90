@@ -316,10 +316,10 @@ module sundials_solve
 
         ! convert the input vector to the sunvector type
         iflag = FCVode(this%cvode_mem, end_time, this%solution_vector, arr_curr_time, CV_NORMAL)
-        if(iflag /= 0) then
-            write(*,*) iflag
-            ! stop 100
-        endif
+        ! if(iflag /= 0) then
+        !     write(*,*) iflag
+        !     ! stop 100
+        ! endif
         ! if(iflag /= 0) then
         !     write(*,*) 'issue here', iflag
         ! endif
