@@ -363,10 +363,6 @@ module sundials_solve
         ! Compute the RHS vector
         call f_user_data%calculate_gradient(tn, yvec(:), fvec(:))
 
-        ! call this%set_solution(yvec)
-
-        ! write(*,*) fvec(1:100)
-
         yvec => null()
         fvec => null()
         f_user_data => null()
